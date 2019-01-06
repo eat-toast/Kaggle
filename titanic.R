@@ -30,7 +30,7 @@ titanic.full[ titanic.full$Embarked == '','Embarked'  ] <- 'S'
 sum(is.na( titanic.full$Fare))
 fare.median<- median(titanic.full$Fare, na.rm= TRUE) 
 titanic.full[ is.na( titanic.full$Fare), 'Fare'  ] <- fare.median
-
+titanic.full$Fare<-log(titanic.full$Fare+1)
 
 
 # title(Name)
@@ -69,6 +69,10 @@ titanic.full[titanic.full$title=='Mrs' & is.na(titanic.full$Age), 'Age']<- Mrs_a
 titanic.full[titanic.full$title=='Officer' & is.na(titanic.full$Age), 'Age']<- Officer_age
 titanic.full[titanic.full$title=='Royalty' & is.na(titanic.full$Age), 'Age']<- Royalty_age
 
+# Family size
+titanic.full$family_size <-titanic.full$SibSp + titanic.full$Parch
+
+
 # categorical casting
 titanic.full$Pclass <- as.factor(titanic.full$Pclass)
 titanic.full$Sex <- as.factor(titanic.full$Sex)
@@ -89,95 +93,52 @@ titanic.train$Survived<- as.factor(titanic.train$Survived)
 
 # random Forests
 fit_random_forest<- randomForest(formula = Survived ~ title + Pclass + Sex + Age 
-                                 + SibSp + Parch + Fare + Embarked
+                                 + family_size + Fare + Embarked #(SibSp + Parch)
                                  , data = titanic.train)
 
 
 pred<- predict(fit_random_forest, titanic.test)
 submission$Survived<- pred
 
-write.csv(submission, '20190101_2.csv', row.names = FALSE)
+write.csv(submission, '20190106_2.csv', row.names = FALSE)
 
-# h2o
-library(h2oEnsemble)  # This will load the `h2o` R package as well
-h2o.init(nthreads = -1)  # Start an H2O cluster with nthreads = num cores on your machine
-h2o.removeAll() # (Optional) Remove all objects in H2O cluster
+# thresh hold 구하기
+prob<- predict(fit_random_forest, titanic.train, type= 'prob')[,1]
 
-idx<- createDataPartition(titanic.train$Survived, p=.8, list=FALSE)
+Thresh_hold<- sort(unique(prob))
 
-# 불필요 변수 제거
-feature_name<- setdiff(names(titanic.train), c('PassengerId','Ticket', 'Cabin', 'is_train'))
+t<-1
+recall<- vector('numeric', length(Thresh_hold))
+precision<- vector('numeric', length(Thresh_hold))
+actual=titanic.train$Survived
 
+while(TRUE){
+  thresh_hold<- mean(Thresh_hold[t] + Thresh_hold[t+1])
+  temp_pred <- prob < thresh_hold
+  
+  pred = as.factor(as.numeric(temp_pred))
+  
+  recall[t]<- sum(pred == 1 & actual == 1) / ( sum(pred == 0 & actual == 1) + sum(pred == 1 & actual == 1) )
+  precision[t]<- sum(pred == 1 & actual == 1) / ( sum(pred == 1 & actual == 0) + sum(pred == 1 & actual == 1) )
+  
+  
+  t<- t+1
+  
+  if(Thresh_hold[t] == 1)break 
+}
 
-train<- titanic.train#[idx, ]
-test<- titanic.test#[-idx, ]
+table(pred, actual)
+table(random_pred, actual)
 
-train<- as.h2o(train)
-test<- as.h2o(test)
+plot(Thresh_hold, recall, type='l', lwd=3, ylim=c(0,1))
+lines(Thresh_hold,precision)
+which.max(recall + precision)
+Thresh_hold[75] # 0.274
 
+# 0.3 을 기준으로 제출 0.78468 별로 좋지 않다.
 
-# Identify predictors and response
-y <- "Survived"
-x <- setdiff(feature_name, y)
+prob<- predict(fit_random_forest, titanic.test, type= 'prob')[,1]
+pred<- prob < 0.3
+submission$Survived<- as.factor(as.numeric(pred))
 
-
-
-learner <- c("h2o.glm.wrapper", "h2o.randomForest.wrapper", 
-             "h2o.gbm.wrapper", "h2o.deeplearning.wrapper")
-metalearner <- "h2o.gbm.wrapper"
-
-family = 'binomial'
-fit <- h2o.ensemble(x = x, y = y, 
-                    training_frame = train, 
-                    family = family, 
-                    learner = learner, 
-                    metalearner = metalearner,
-                    cvControl = list(V = 5))
-
-
-
-(perf <- h2o.ensemble_performance(fit, newdata = test))
-print(perf, metric = "AUTO")
-
-
-# feature_name<- setdiff(feature_name, 'Survived')
-pred <- predict(fit, newdata = test[,feature_name])
-predictions <- as.data.frame(pred$pred)[,1]  #third column is P(Y==1)
-submission[,2]<- predictions
-
-write.csv(submission, '20190101_3.csv', row.names = FALSE)
-
-
-
-
-
-
-h2o.glm.1 <- function(..., alpha = 0.0) h2o.glm.wrapper(..., alpha = alpha)
-h2o.glm.2 <- function(..., alpha = 0.5) h2o.glm.wrapper(..., alpha = alpha)
-h2o.glm.3 <- function(..., alpha = 1.0) h2o.glm.wrapper(..., alpha = alpha)
-h2o.randomForest.1 <- function(..., ntrees = 200, nbins = 50, seed = 1) h2o.randomForest.wrapper(..., ntrees = ntrees, nbins = nbins, seed = seed)
-h2o.randomForest.2 <- function(..., ntrees = 200, sample_rate = 0.75, seed = 1) h2o.randomForest.wrapper(..., ntrees = ntrees, sample_rate = sample_rate, seed = seed)
-h2o.randomForest.3 <- function(..., ntrees = 200, sample_rate = 0.85, seed = 1) h2o.randomForest.wrapper(..., ntrees = ntrees, sample_rate = sample_rate, seed = seed)
-h2o.randomForest.4 <- function(..., ntrees = 200, nbins = 50, balance_classes = TRUE, seed = 1) h2o.randomForest.wrapper(..., ntrees = ntrees, nbins = nbins, balance_classes = balance_classes, seed = seed)
-h2o.gbm.1 <- function(..., ntrees = 100, seed = 1) h2o.gbm.wrapper(..., ntrees = ntrees, seed = seed)
-h2o.gbm.2 <- function(..., ntrees = 100, nbins = 50, seed = 1) h2o.gbm.wrapper(..., ntrees = ntrees, nbins = nbins, seed = seed)
-h2o.gbm.3 <- function(..., ntrees = 100, max_depth = 10, seed = 1) h2o.gbm.wrapper(..., ntrees = ntrees, max_depth = max_depth, seed = seed)
-h2o.gbm.4 <- function(..., ntrees = 100, col_sample_rate = 0.8, seed = 1) h2o.gbm.wrapper(..., ntrees = ntrees, col_sample_rate = col_sample_rate, seed = seed)
-h2o.gbm.5 <- function(..., ntrees = 100, col_sample_rate = 0.7, seed = 1) h2o.gbm.wrapper(..., ntrees = ntrees, col_sample_rate = col_sample_rate, seed = seed)
-h2o.gbm.6 <- function(..., ntrees = 100, col_sample_rate = 0.6, seed = 1) h2o.gbm.wrapper(..., ntrees = ntrees, col_sample_rate = col_sample_rate, seed = seed)
-h2o.gbm.7 <- function(..., ntrees = 100, balance_classes = TRUE, seed = 1) h2o.gbm.wrapper(..., ntrees = ntrees, balance_classes = balance_classes, seed = seed)
-h2o.gbm.8 <- function(..., ntrees = 100, max_depth = 3, seed = 1) h2o.gbm.wrapper(..., ntrees = ntrees, max_depth = max_depth, seed = seed)
-h2o.deeplearning.1 <- function(..., hidden = c(500,500), activation = "Rectifier", epochs = 50, seed = 1)  h2o.deeplearning.wrapper(..., hidden = hidden, activation = activation, seed = seed)
-h2o.deeplearning.2 <- function(..., hidden = c(200,200,200), activation = "Tanh", epochs = 50, seed = 1)  h2o.deeplearning.wrapper(..., hidden = hidden, activation = activation, seed = seed)
-h2o.deeplearning.3 <- function(..., hidden = c(500,500), activation = "RectifierWithDropout", epochs = 50, seed = 1)  h2o.deeplearning.wrapper(..., hidden = hidden, activation = activation, seed = seed)
-h2o.deeplearning.4 <- function(..., hidden = c(500,500), activation = "Rectifier", epochs = 50, balance_classes = TRUE, seed = 1)  h2o.deeplearning.wrapper(..., hidden = hidden, activation = activation, balance_classes = balance_classes, seed = seed)
-h2o.deeplearning.5 <- function(..., hidden = c(100,100,100), activation = "Rectifier", epochs = 50, seed = 1)  h2o.deeplearning.wrapper(..., hidden = hidden, activation = activation, seed = seed)
-h2o.deeplearning.6 <- function(..., hidden = c(50,50), activation = "Rectifier", epochs = 50, seed = 1)  h2o.deeplearning.wrapper(..., hidden = hidden, activation = activation, seed = seed)
-h2o.deeplearning.7 <- function(..., hidden = c(100,100), activation = "Rectifier", epochs = 50, seed = 1)  h2o.deeplearning.wrapper(..., hidden = hidden, activation = activation, seed = seed)
-
-learner <- c("h2o.glm.1","h2o.glm.2","h2o.glm.3",
-             "h2o.randomForest.1", "h2o.randomForest.2",'h2o.randomForest.3','h2o.randomForest.4',
-             "h2o.gbm.1","h2o.gbm.2","h2o.gbm.3","h2o.gbm.4","h2o.gbm.5","h2o.gbm.6",'h2o.gbm.7',"h2o.gbm.8",
-             "h2o.deeplearning.1","h2o.deeplearning.2","h2o.deeplearning.3",'h2o.deeplearning.4',
-             "h2o.deeplearning.5","h2o.deeplearning.6", "h2o.deeplearning.7")
-
+write.csv(submission, '20190106_3.csv', row.names = FALSE)
