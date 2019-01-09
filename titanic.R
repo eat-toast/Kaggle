@@ -72,17 +72,23 @@ titanic.full[titanic.full$title=='Royalty' & is.na(titanic.full$Age), 'Age']<- R
 # Family size
 titanic.full$family_size <-titanic.full$SibSp + titanic.full$Parch
 
+# 이름의 길이 (X)
+# titanic.full$name_len <- nchar(titanic.full$Name)
+
+# isAlone
+titanic.full$isAlone <- ifelse(titanic.full$family_size==1, 1, 0)
 
 # categorical casting
 titanic.full$Pclass <- as.factor(titanic.full$Pclass)
 titanic.full$Sex <- as.factor(titanic.full$Sex)
 titanic.full$Embarked <- as.factor(titanic.full$Embarked)
 titanic.full$title <- as.factor(titanic.full$title)
-
+titanic.full$isAlone<- as.factor(titanic.full$isAlone)
 
 # Split
 titanic.train<- titanic.full[titanic.full$is_train==TRUE, ]
 titanic.test<- titanic.full[titanic.full$is_train==FALSE, ]
+
 
 
 
@@ -91,16 +97,17 @@ titanic.train$Survived<- as.factor(titanic.train$Survived)
 
 
 
+
 # random Forests
 fit_random_forest<- randomForest(formula = Survived ~ title + Pclass + Sex + Age 
-                                 + family_size + Fare + Embarked #(SibSp + Parch)
+                                 + family_size + Fare+isAlone  #(SibSp + Parch + Embarked)
                                  , data = titanic.train)
 
 
 pred<- predict(fit_random_forest, titanic.test)
 submission$Survived<- pred
 
-write.csv(submission, '20190106_2.csv', row.names = FALSE)
+write.csv(submission, '20190109_4.csv', row.names = FALSE)
 
 # thresh hold 구하기
 prob<- predict(fit_random_forest, titanic.train, type= 'prob')[,1]
