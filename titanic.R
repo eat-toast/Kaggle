@@ -3,12 +3,16 @@ library(stringr)
 library(caret)
 library(randomForest)
 
-setwd('D:\\타이타닉')
+
+setwd('D:\\타이타닉\\Kaggle')
 
 train<- read.csv('train.csv', stringsAsFactors = FALSE)
 test<-  read.csv('test.csv', stringsAsFactors = FALSE)
 submission<- read.csv("sample_submission.csv")
 
+# 아웃라이어 제거 
+out_idx<- c(28, 89, 160, 181, 202, 325, 342, 793, 847, 864)
+train<- train[-out_idx, ]
 
 # 전처리를위해 데이터 하나로 묶기
 train$is_train<- TRUE
@@ -70,13 +74,33 @@ titanic.full[titanic.full$title=='Officer' & is.na(titanic.full$Age), 'Age']<- O
 titanic.full[titanic.full$title=='Royalty' & is.na(titanic.full$Age), 'Age']<- Royalty_age
 
 # Family size
-titanic.full$family_size <-titanic.full$SibSp + titanic.full$Parch
+titanic.full$family_size <-titanic.full$SibSp + titanic.full$Parch+1
 
 # 이름의 길이 (X)
-# titanic.full$name_len <- nchar(titanic.full$Name)
+titanic.full$name_len <- nchar(titanic.full$Name)
 
 # isAlone
 titanic.full$isAlone <- ifelse(titanic.full$family_size==1, 1, 0)
+
+
+# Cabin 선실에 대한 정보 출처: https://www.kaggle.com/c/titanic/discussion/4693
+Cabin<- titanic.full$Cabin
+cabin<- vector('character', length(Cabin))
+for(i in 1:length(Cabin)){
+  if(nchar(Cabin[i]) == 0 ){cabin[i]<-'U'}else{
+    cabin[i]<- substr(Cabin[i],1,1)
+  }
+}
+# T는 A로 분류
+T_idx<- which(cabin == 'T')
+cabin[T_idx]<- 'A'
+
+cabin_dic<- c("A", 'B', 'C', 'D', 'E', 'F', 'G', 'U')
+
+
+# make new_cabin
+titanic.full$new_Cabin<- cabin
+
 
 # categorical casting
 titanic.full$Pclass <- as.factor(titanic.full$Pclass)
@@ -84,6 +108,7 @@ titanic.full$Sex <- as.factor(titanic.full$Sex)
 titanic.full$Embarked <- as.factor(titanic.full$Embarked)
 titanic.full$title <- as.factor(titanic.full$title)
 titanic.full$isAlone<- as.factor(titanic.full$isAlone)
+titanic.full$new_Cabin<- as.factor(titanic.full$new_Cabin)
 
 # Split
 titanic.train<- titanic.full[titanic.full$is_train==TRUE, ]
@@ -100,14 +125,15 @@ titanic.train$Survived<- as.factor(titanic.train$Survived)
 
 # random Forests
 fit_random_forest<- randomForest(formula = Survived ~ title + Pclass + Sex + Age 
-                                 + family_size + Fare+isAlone  #(SibSp + Parch + Embarked)
+                                 + family_size + Fare+isAlone+new_Cabin  #(SibSp + Parch +Embarked )
+                                 
                                  , data = titanic.train)
 
 
 pred<- predict(fit_random_forest, titanic.test)
 submission$Survived<- pred
 
-write.csv(submission, '20190109_4.csv', row.names = FALSE)
+write.csv(submission, '20190113_8.csv', row.names = FALSE)
 
 # thresh hold 구하기
 prob<- predict(fit_random_forest, titanic.train, type= 'prob')[,1]
