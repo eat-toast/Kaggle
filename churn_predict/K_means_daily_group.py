@@ -3,42 +3,59 @@ import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans
 from sklearn.metrics.pairwise import cosine_similarity
-
+import itertools
 # Hyper parameter
 num_cluster = 3
-np.random.seed(2)
+np.random.seed(10)
+input_day = 3
+cluster_list = list( range(input_day ) )
 
-train  = pd.DataFrame(data = {'datekey': ['2019-07-18'] * 10,
-                               'nid' : range(10),
-                               'x1' : np.random.uniform(high=10, low = 0, size = 10),
-                               'x2' : np.random.uniform(high=10, low = 0, size = 10),
+
+# 군집 중심 정보 저장
+temp_center = list(itertools.chain.from_iterable(itertools.repeat(i, num_cluster ) for i in cluster_list ))
+train_center = pd.DataFrame(data = {'day': temp_center }, index = range(num_cluster * 3))
+train_center['x1_center'] = 0
+train_center['x2_center'] = 0
+train_center['cluster'] = list(range(num_cluster)) * input_day
+
+
+train  = pd.DataFrame(data = {'datekey': ['2019-07-18'] * 100,
+                               'nid' : range(100),
+                               'x1' : np.random.normal(30, 1, size = 100),
+                               'x2' : np.random.normal(30, 1, size = 100),
                                })
 
 train.datekey = pd.to_datetime(train.datekey) # datetime 형식으로 변환
 
 train_day2 = copy.deepcopy(train) # day2 데이터 생성
 train_day2.datekey = train_day2.datekey + pd.Timedelta(days = 1) # datetime 형식 변환 + add day1
-train_day2.x1 = np.random.uniform(high=10, low = 0, size = 10)
-train_day2.x2 = np.random.uniform(high=10, low = 0, size = 10)
+train_day2.x1 = np.random.normal(50, 1, size = 100)
+train_day2.x2 = np.random.normal(50, 1, size = 100)
 
 
-train_day3 = copy.deepcopy(train) # day3 데이터 생성
+train_day3 = copy.deepcopy(train_day2) # day3 데이터 생성
 train_day3.datekey = train_day3.datekey + pd.Timedelta(days = 1) # datetime 형식 변환 + add day1
-train_day3.x1 = np.random.uniform(high=10, low = 0, size = 10)
-train_day3.x2 = np.random.uniform(high=10, low = 0, size = 10)
+train_day3.x1 = np.random.normal(10, 5, size = 100)
+train_day3.x2 = np.random.normal(10, 5, size = 100)
 
+# Scale 맞춰주기
+def zero_to_one(x):
+    max_x = max(x)
+    min_x = min(x)
+
+    return ( x - min_x ) / (max_x - min_x)
+
+train[['scale_x1', 'scale_x2']] = train[['x1', 'x2']].apply(lambda x : zero_to_one(x))
+train_day2[['scale_x1', 'scale_x2']] = train_day2[['x1', 'x2']].apply(lambda x : zero_to_one(x))
+train_day3[['scale_x1', 'scale_x2']] = train_day3[['x1', 'x2']].apply(lambda x : zero_to_one(x))
 
 # 하루를 차이로 변수가 +1 씩 변경되었을 때, K-means의 군집 매칭 시키기 (Day1 <=> Day2)
-features = ['x1', 'x2']
+features = ['scale_x1', 'scale_x2']
 # train_day2[features] = train[features] +1
 
 kmeans_day1 = KMeans(n_clusters=num_cluster, random_state=1).fit(train[features]) # Day1 군집
 label_day1 = kmeans_day1.labels_
 train['cluster'] = label_day1
-
-train_center = pd.DataFrame(data = {'day': [0, 0, 0, 1, 1, 1, 2, 2, 2] }, index = range(num_cluster * 3))
-train_center['x1_center'] = 0
-train_center['x2_center'] = 0
 
 train_center.loc[train_center.day == 0, ['x1_center', 'x2_center'] ] = kmeans_day1.cluster_centers_
 
@@ -49,8 +66,9 @@ def day_day_cluster(day_n_df, features):
    :param features:  사용할 feature 모음
    :return: day_n_df + cluster 정보
    """
-    global kmeans_day1
-    global train
+   # 군집비교는 cluser 수만큼 동시에 비교하여야 한다. 2019-11-04
+
+    global kmeans_day1, train
 
     kmeans_day_n = KMeans(n_clusters=num_cluster, random_state=0).fit(day_n_df[features]) # Day_n 군집
     label_day_n = kmeans_day_n.labels_
@@ -89,13 +107,27 @@ import matplotlib.pyplot as plt
 
 # 중심점 집합
 
+f, ax = plt.subplots(nrows = 1, ncols = 4)
 
-f, ax = plt.subplots(nrows = 1, ncols = 2)
-
-sns.scatterplot(x = 'x1', y = 'x2', data = train , hue = 'cluster', s = 100
+sns.scatterplot(x = 'scale_x1', y = 'scale_x2', data = train.loc[train.datekey == '2019-07-18'] , hue = 'cluster', s = 100
                 , style = 'cluster' , ax = ax[0] )
 
-sns.scatterplot(x = 'x1_center', y = 'x2_center', data = train_center , hue = 'day', s = 100
-                , style = 'day' , ax = ax[1] )
+sns.scatterplot(x = 'scale_x1', y = 'scale_x2', data = train.loc[train.datekey == '2019-07-19'] , hue = 'cluster', s = 100
+                , style = 'cluster' , ax = ax[1] )
+
+sns.scatterplot(x = 'scale_x1', y = 'scale_x2', data = train.loc[train.datekey == '2019-07-20'] , hue = 'cluster', s = 100
+                , style = 'cluster' , ax = ax[2] )
 
 
+sns.scatterplot(x = 'scale_x1', y = 'scale_x2', data = train , hue = 'cluster', s = 100
+                , style = 'cluster' , ax = ax[3] )
+ax[1].set_ylim(0, 1)
+ax[1].set_xlim(0, 1)
+ax[2].set_ylim(0, 1)
+ax[2].set_xlim(0, 1)
+# 군집별 특성 확인
+
+# Day1 - 군집1
+train.loc[train.datekey == '2019-07-18'].groupby('cluster').scale_x1.mean()
+train.loc[train.datekey == '2019-07-19'].groupby('cluster').scale_x1.mean()
+train.loc[train.datekey == '2019-07-20'].groupby('cluster').scale_x1.mean()
